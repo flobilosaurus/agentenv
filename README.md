@@ -2,7 +2,7 @@
 
 ![Go](https://img.shields.io/badge/go-1.24+-00ADD8?logo=go)
 ![Release](https://img.shields.io/github/v/release/flobilosaurus/agent-env)
-![License](https://img.shields.io/github/license/flobilosaurus/agent-env)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 > Project-aware identities for AI coding agents.
 
