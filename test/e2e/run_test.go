@@ -77,6 +77,9 @@ func TestRunUnmappedNonInteractiveFails(t *testing.T) {
 	if !strings.Contains(string(out), "no profile mapping") {
 		t.Fatalf("unexpected: %s", out)
 	}
+	if _, err := os.Stat(filepath.Join(data, "profiles")); !os.IsNotExist(err) {
+		t.Fatalf("profile side effect exists or stat failed: %v", err)
+	}
 }
 
 func TestRunForceSelectNonInteractiveFailsWithoutMutatingMappingOrLaunching(t *testing.T) {

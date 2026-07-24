@@ -10,6 +10,7 @@ import (
 	"github.com/flobilosaurus/agent-env/internal/doctor"
 	"github.com/flobilosaurus/agent-env/internal/paths"
 	"github.com/flobilosaurus/agent-env/internal/pathsetup"
+	"github.com/flobilosaurus/agent-env/internal/profileimport"
 	"github.com/flobilosaurus/agent-env/internal/runner"
 	"github.com/flobilosaurus/agent-env/internal/tui"
 	"github.com/flobilosaurus/agent-env/internal/wrapper"
@@ -132,7 +133,7 @@ func (a App) run(args []string) int {
 			}
 			return 1
 		}
-		chosen, err := a.chooseAndSaveProfile(cfgPath, &cfg, project, agent)
+		chosen, err := a.chooseAndSaveProfile(p, cfgPath, &cfg, project, agent)
 		if err != nil {
 			fmt.Fprintln(a.Err, "agentenv:", err)
 			return 1
@@ -154,32 +155,74 @@ func (a App) run(args []string) int {
 		return 127
 	}
 	fmt.Fprintln(a.Out, tui.Banner(profile, agent))
-	return runner.RunAgent(real, pass, home, runner.IO{Stdin: a.In, Stdout: a.Out, Stderr: a.Err})
+	extraEnv := map[string]string{
+		"XDG_CONFIG_HOME": filepath.Join(home, ".config"),
+		"XDG_DATA_HOME":   filepath.Join(home, ".local", "share"),
+		"XDG_STATE_HOME":  filepath.Join(home, ".local", "state"),
+	}
+	if agent == "claude" {
+		extraEnv["CLAUDE_CONFIG_DIR"] = filepath.Join(home, ".claude")
+	}
+	return runner.RunAgentWithEnv(real, pass, home, extraEnv, runner.IO{Stdin: a.In, Stdout: a.Out, Stderr: a.Err})
 }
 
-func (a App) chooseAndSaveProfile(cfgPath string, cfg *config.Config, project, agent string) (string, error) {
+func (a App) chooseAndSaveProfile(p paths.Paths, cfgPath string, cfg *config.Config, project, agent string) (string, error) {
 	prompter := a.Prompter
 	if prompter == nil {
 		prompter = tui.BubblePrompter{}
 	}
-	chosen, create, err := prompter.ChooseProfile(agent, cfg.Profiles)
+	catalog := profileimport.Catalog()
+	sources := profileimport.ProfileSources(p, cfg.Profiles, os.Getenv("HOME"))
+	choice, err := prompter.ChooseProfile(agent, cfg.Profiles, sources, catalog)
 	if err != nil {
 		return "", err
 	}
-	if create {
-		if err := cfg.AddProfile(chosen); err != nil {
+	chosen := choice.Profile
+	next := cloneConfig(*cfg)
+	if choice.Create {
+		if err := next.AddProfile(chosen); err != nil {
 			return "", err
 		}
-	} else if !cfg.HasProfile(chosen) {
+		home, err := paths.EnsureProfileHome(p, chosen)
+		if err != nil {
+			return "", fmt.Errorf("profile home: %w", err)
+		}
+		if choice.Import != nil && len(choice.Import.GroupIDs) > 0 {
+			result, err := profileimport.ImportSelection(home, *choice.Import, catalog)
+			if err != nil {
+				return "", err
+			}
+			a.printImportSummary(chosen, choice.Import.Source, result)
+		}
+	} else if !next.HasProfile(chosen) {
 		return "", fmt.Errorf("profile %q does not exist", chosen)
 	}
-	if err := cfg.SetProject(project, chosen); err != nil {
+	if err := next.SetProject(project, chosen); err != nil {
 		return "", err
 	}
-	if err := config.Save(cfgPath, *cfg); err != nil {
+	if err := config.Save(cfgPath, next); err != nil {
 		return "", fmt.Errorf("save config: %w", err)
 	}
+	*cfg = next
 	return chosen, nil
+}
+
+func cloneConfig(c config.Config) config.Config {
+	clone := config.Config{Profiles: append([]config.Profile(nil), c.Profiles...), Projects: map[string]string{}}
+	for project, profile := range c.Projects {
+		clone.Projects[project] = profile
+	}
+	return clone
+}
+
+func (a App) printImportSummary(profile string, source profileimport.Source, result profileimport.Result) {
+	if len(result.Copied) == 0 && len(result.Skipped) == 0 {
+		return
+	}
+	fmt.Fprintf(a.Out, "imported %d group(s) from %s into profile %q\n", len(result.Copied), source.Label, profile)
+	for _, skipped := range result.Skipped {
+		fmt.Fprintf(a.Out, "skipped existing: %s\n", skipped.Path)
+	}
 }
 
 func (a App) wrap(args []string) int {

@@ -40,8 +40,12 @@ func LookupAgent(agent, wrapperBin string) (string, error) {
 }
 
 func RunAgent(realPath string, args []string, home string, io IO) int {
+	return RunAgentWithEnv(realPath, args, home, nil, io)
+}
+
+func RunAgentWithEnv(realPath string, args []string, home string, extraEnv map[string]string, io IO) int {
 	cmd := exec.Command(realPath, args...)
-	cmd.Env = withHome(os.Environ(), home)
+	cmd.Env = withHomeAndExtra(os.Environ(), home, extraEnv)
 	cmd.Stdin = io.Stdin
 	cmd.Stdout = io.Stdout
 	cmd.Stderr = io.Stderr
@@ -57,14 +61,27 @@ func RunAgent(realPath string, args []string, home string, io IO) int {
 }
 
 func withHome(env []string, home string) []string {
-	out := make([]string, 0, len(env)+1)
+	return withHomeAndExtra(env, home, nil)
+}
+
+func withHomeAndExtra(env []string, home string, extra map[string]string) []string {
+	out := make([]string, 0, len(env)+1+len(extra))
 	for _, e := range env {
 		if strings.HasPrefix(e, "HOME=") {
 			continue
 		}
+		if k, _, ok := strings.Cut(e, "="); ok {
+			if _, replace := extra[k]; replace {
+				continue
+			}
+		}
 		out = append(out, e)
 	}
-	return append(out, "HOME="+home)
+	out = append(out, "HOME="+home)
+	for k, v := range extra {
+		out = append(out, k+"="+v)
+	}
+	return out
 }
 
 func isExecutable(path string) bool {

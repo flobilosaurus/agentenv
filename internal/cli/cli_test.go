@@ -8,20 +8,25 @@ import (
 	"testing"
 
 	"github.com/flobilosaurus/agent-env/internal/config"
+	"github.com/flobilosaurus/agent-env/internal/profileimport"
+	"github.com/flobilosaurus/agent-env/internal/tui"
 )
 
 type fakePrompter struct {
-	profile string
-	create  bool
-	calls   int
+	profile      string
+	create       bool
+	importIntent *profileimport.Intent
+	calls        int
+	sources      []profileimport.Source
 }
 
-func (f *fakePrompter) ChooseProfile(agent string, profiles []config.Profile) (string, bool, error) {
+func (f *fakePrompter) ChooseProfile(agent string, profiles []config.Profile, sources []profileimport.Source, groups []profileimport.Group) (tui.ProfileChoice, error) {
 	f.calls++
+	f.sources = append([]profileimport.Source(nil), sources...)
 	if f.profile == "" {
-		return "new-profile", true, nil
+		return tui.ProfileChoice{Profile: "new-profile", Create: true, Import: f.importIntent}, nil
 	}
-	return f.profile, f.create, nil
+	return tui.ProfileChoice{Profile: f.profile, Create: f.create, Import: f.importIntent}, nil
 }
 
 type fakeRemovePrompter struct {
@@ -83,6 +88,45 @@ func TestRunForceSelectReplacesMappingAndLaunchesWithSelectedProfile(t *testing.
 	wantHome := filepath.Join(dataHome, "profiles", "new-profile", "home")
 	if !strings.Contains(string(got), "HOME="+wantHome) {
 		t.Fatalf("wrong launch home: %s", got)
+	}
+}
+
+func TestRunClaudeSetsClaudeConfigDirToProfileHome(t *testing.T) {
+	cfgHome, dataHome, realBin, project, record := setupRunTest(t)
+	writeTestConfig(t, cfgHome, project, "work")
+	if err := os.WriteFile(filepath.Join(realBin, "claude"), []byte("#!/bin/sh\nprintf 'HOME=%s\nCLAUDE_CONFIG_DIR=%s\n' \"$HOME\" \"$CLAUDE_CONFIG_DIR\" > \""+record+"\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var errBuf bytes.Buffer
+	code := App{Err: &errBuf}.Run([]string{"run", "claude"})
+	if code != 0 {
+		t.Fatalf("code=%d err=%s", code, errBuf.String())
+	}
+	got, _ := os.ReadFile(record)
+	home := filepath.Join(dataHome, "profiles", "work", "home")
+	if !strings.Contains(string(got), "HOME="+home) || !strings.Contains(string(got), "CLAUDE_CONFIG_DIR="+filepath.Join(home, ".claude")) {
+		t.Fatalf("wrong env: %s", got)
+	}
+}
+
+func TestRunSetsXDGDirsToProfileHomeForAllAgents(t *testing.T) {
+	cfgHome, dataHome, realBin, project, record := setupRunTest(t)
+	writeTestConfig(t, cfgHome, project, "work")
+	if err := os.WriteFile(filepath.Join(realBin, "codex"), []byte("#!/bin/sh\nprintf 'HOME=%s\nXDG_CONFIG_HOME=%s\nXDG_DATA_HOME=%s\nXDG_STATE_HOME=%s\n' \"$HOME\" \"$XDG_CONFIG_HOME\" \"$XDG_DATA_HOME\" \"$XDG_STATE_HOME\" > \""+record+"\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", "/host/config")
+	t.Setenv("XDG_DATA_HOME", "/host/data")
+	t.Setenv("XDG_STATE_HOME", "/host/state")
+	var errBuf bytes.Buffer
+	code := App{Err: &errBuf}.Run([]string{"run", "codex"})
+	if code != 0 {
+		t.Fatalf("code=%d err=%s", code, errBuf.String())
+	}
+	got, _ := os.ReadFile(record)
+	home := filepath.Join(dataHome, "profiles", "work", "home")
+	if !strings.Contains(string(got), "HOME="+home) || !strings.Contains(string(got), "XDG_CONFIG_HOME="+filepath.Join(home, ".config")) || !strings.Contains(string(got), "XDG_DATA_HOME="+filepath.Join(home, ".local", "share")) || !strings.Contains(string(got), "XDG_STATE_HOME="+filepath.Join(home, ".local", "state")) {
+		t.Fatalf("wrong env: %s", got)
 	}
 }
 
@@ -264,4 +308,155 @@ func loadTestConfig(t *testing.T, cfgHome string) config.Config {
 		t.Fatal(err)
 	}
 	return cfg
+}
+
+func TestRunCreateWithNoImportCreatesEmptyProfileHome(t *testing.T) {
+	_, dataHome, _, _, _ := setupRunTest(t)
+	prompter := &fakePrompter{}
+	var errBuf bytes.Buffer
+	code := App{Err: &errBuf, Prompter: prompter}.Run([]string{"run", "pi"})
+	if code != 0 {
+		t.Fatalf("code=%d err=%s", code, errBuf.String())
+	}
+	home := filepath.Join(dataHome, "profiles", "new-profile", "home")
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("home not empty: %+v", entries)
+	}
+}
+
+func TestRunCreateWithOriginalHomeImportCopiesSelectedGroups(t *testing.T) {
+	_, dataHome, _, _, _ := setupRunTest(t)
+	orig := t.TempDir()
+	t.Setenv("HOME", orig)
+	writeFile(t, filepath.Join(orig, ".pi/agent/auth.json"), "auth")
+	intent := &profileimport.Intent{Source: profileimport.Source{Label: "Original HOME", Path: orig}, GroupIDs: []string{"pi.auth"}}
+	prompter := &fakePrompter{importIntent: intent}
+	var out, errBuf bytes.Buffer
+	code := App{Out: &out, Err: &errBuf, Prompter: prompter}.Run([]string{"run", "pi"})
+	if code != 0 {
+		t.Fatalf("code=%d err=%s", code, errBuf.String())
+	}
+	assertTestFile(t, filepath.Join(dataHome, "profiles/new-profile/home/.pi/agent/auth.json"), "auth")
+	if !strings.Contains(out.String(), "imported 1 group(s) from Original HOME") {
+		t.Fatalf("missing summary: %s", out.String())
+	}
+}
+
+func TestRunCreateWithExistingProfileImportCopiesSelectedGroups(t *testing.T) {
+	cfgHome, dataHome, _, _, _ := setupRunTest(t)
+	writeTestConfig(t, cfgHome, t.TempDir(), "source-profile")
+	sourceHome := filepath.Join(dataHome, "profiles/source-profile/home")
+	writeFile(t, filepath.Join(sourceHome, ".codex/config.toml"), "model=\"x\"")
+	intent := &profileimport.Intent{Source: profileimport.Source{Label: "profile: source-profile", Path: sourceHome}, GroupIDs: []string{"codex.config"}}
+	prompter := &fakePrompter{importIntent: intent}
+	var errBuf bytes.Buffer
+	code := App{Err: &errBuf, Prompter: prompter}.Run([]string{"run", "pi"})
+	if code != 0 {
+		t.Fatalf("code=%d err=%s", code, errBuf.String())
+	}
+	assertTestFile(t, filepath.Join(dataHome, "profiles/new-profile/home/.codex/config.toml"), "model=\"x\"")
+}
+
+func TestRunCreateImportSkipsExistingTargetAndReports(t *testing.T) {
+	_, dataHome, _, _, _ := setupRunTest(t)
+	src := t.TempDir()
+	writeFile(t, filepath.Join(src, ".pi/agent/auth.json"), "source")
+	targetAuth := filepath.Join(dataHome, "profiles/new-profile/home/.pi/agent/auth.json")
+	writeFile(t, targetAuth, "target")
+	intent := &profileimport.Intent{Source: profileimport.Source{Label: "src", Path: src}, GroupIDs: []string{"pi.auth"}}
+	var out, errBuf bytes.Buffer
+	code := App{Out: &out, Err: &errBuf, Prompter: &fakePrompter{importIntent: intent}}.Run([]string{"run", "pi"})
+	if code != 0 {
+		t.Fatalf("code=%d err=%s", code, errBuf.String())
+	}
+	assertTestFile(t, targetAuth, "target")
+	if !strings.Contains(out.String(), "skipped existing: .pi/agent/auth.json") {
+		t.Fatalf("missing skip summary: %s", out.String())
+	}
+}
+
+func TestRunCreateImportFailureDoesNotPersistConfigButLeavesPartialFiles(t *testing.T) {
+	cfgHome, dataHome, _, project, _ := setupRunTest(t)
+	src := t.TempDir()
+	writeFile(t, filepath.Join(src, ".pi/agent/auth.json"), "auth")
+	mkdirTest(t, filepath.Join(src, ".pi/agent"))
+	if err := os.Symlink("elsewhere", filepath.Join(src, ".pi/agent/skills")); err != nil {
+		t.Fatal(err)
+	}
+	intent := &profileimport.Intent{Source: profileimport.Source{Label: "src", Path: src}, GroupIDs: []string{"pi.auth", "pi.skills"}}
+	var errBuf bytes.Buffer
+	code := App{Err: &errBuf, Prompter: &fakePrompter{importIntent: intent}}.Run([]string{"run", "pi"})
+	if code == 0 {
+		t.Fatal("expected failure")
+	}
+	cfg := loadTestConfig(t, cfgHome)
+	key, _ := config.NormalizeProjectPath(project)
+	if cfg.HasProfile("new-profile") || cfg.Projects[key] != "" {
+		t.Fatalf("config persisted after failure: %+v", cfg)
+	}
+	assertTestFile(t, filepath.Join(dataHome, "profiles/new-profile/home/.pi/agent/auth.json"), "auth")
+}
+
+func TestRunExistingProfileDoesNotImport(t *testing.T) {
+	cfgHome, dataHome, _, project, _ := setupRunTest(t)
+	writeTestConfig(t, cfgHome, project, "old-profile", "new-profile")
+	src := t.TempDir()
+	writeFile(t, filepath.Join(src, ".pi/agent/auth.json"), "auth")
+	intent := &profileimport.Intent{Source: profileimport.Source{Label: "src", Path: src}, GroupIDs: []string{"pi.auth"}}
+	prompter := &fakePrompter{profile: "new-profile", importIntent: intent}
+	var errBuf bytes.Buffer
+	code := App{Err: &errBuf, Prompter: prompter}.Run([]string{"run", "--select", "pi"})
+	if code != 0 {
+		t.Fatalf("code=%d err=%s", code, errBuf.String())
+	}
+	if _, err := os.Stat(filepath.Join(dataHome, "profiles/new-profile/home/.pi/agent/auth.json")); !os.IsNotExist(err) {
+		t.Fatalf("import occurred or stat failed: %v", err)
+	}
+}
+
+func TestRunPrompterReceivesOriginalHomeAndProfileSources(t *testing.T) {
+	cfgHome, dataHome, _, _, _ := setupRunTest(t)
+	orig := t.TempDir()
+	t.Setenv("HOME", orig)
+	writeTestConfig(t, cfgHome, t.TempDir(), "source-profile")
+	mkdirTest(t, filepath.Join(dataHome, "profiles/source-profile/home"))
+	prompter := &fakePrompter{}
+	var errBuf bytes.Buffer
+	code := App{Err: &errBuf, Prompter: prompter}.Run([]string{"run", "pi"})
+	if code != 0 {
+		t.Fatalf("code=%d err=%s", code, errBuf.String())
+	}
+	if len(prompter.sources) != 2 || prompter.sources[0].Kind != profileimport.SourceKindHome || prompter.sources[1].ID != "profile:source-profile" {
+		t.Fatalf("sources=%+v", prompter.sources)
+	}
+}
+
+func mkdirTest(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	mkdirTest(t, filepath.Dir(path))
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertTestFile(t *testing.T, path, content string) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Fatalf("%s=%q want %q", path, got, content)
+	}
 }
