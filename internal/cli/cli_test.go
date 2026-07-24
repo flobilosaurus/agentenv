@@ -60,6 +60,21 @@ func TestMissingArgs(t *testing.T) {
 	}
 }
 
+func TestVersionCommandUsesInjectedVersion(t *testing.T) {
+	old := Version
+	Version = "v9.8.7"
+	defer func() { Version = old }()
+
+	var out bytes.Buffer
+	code := App{Out: &out}.Run([]string{"version"})
+	if code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	if got, want := strings.TrimSpace(out.String()), "agentenv v9.8.7"; got != want {
+		t.Fatalf("version output=%q want %q", got, want)
+	}
+}
+
 func TestRunMissingMappingWithFakePrompterCreatesProfileAndMapping(t *testing.T) {
 	cfgHome, dataHome, realBin, project, record := setupRunTest(t)
 	prompter := &fakePrompter{}

@@ -19,7 +19,7 @@ import (
 	"github.com/flobilosaurus/agent-env/internal/wrapper"
 )
 
-const Version = "0.1.0"
+var Version = "dev"
 
 const launchBannerDelay = 1 * time.Second
 
