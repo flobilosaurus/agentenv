@@ -1,6 +1,8 @@
 # agentenv
 
-`agentenv` launches any AI coding agent with a project-specific identity by setting an isolated profile `HOME`.
+`agentenv` automatically launches AI coding agents with the correct project identity.
+
+Keep authentication, configuration, and local agent state isolated per project—so the right account is always used automatically.
 
 ## Install
 
@@ -13,13 +15,6 @@ Options:
 ```sh
 AGENTENV_INSTALL_DIR=/usr/local/bin sh -c "$(curl -fsSL https://raw.githubusercontent.com/flobilosaurus/agent-env/main/install.sh)"
 AGENTENV_VERSION=v0.1.0 sh -c "$(curl -fsSL https://raw.githubusercontent.com/flobilosaurus/agent-env/main/install.sh)"
-```
-
-## Build
-
-```sh
-mise install
-mise run build
 ```
 
 ## Commands
@@ -76,17 +71,3 @@ Imports copy whole selected files/directories before the agent launches. They do
 
 `AGENTENV_HOME` is agentenv's data root. It is not the same as the `HOME` value passed to agents.
 
-## Security model v1
-
-agentenv only sets `HOME` for the child process. It does not set XDG variables, manage secrets, or write repo-local mapping files. Profiles have names only.
-
-## Development
-
-```sh
-mise run fmt
-mise run test
-mise run test:e2e
-mise run build
-```
-
-E2E tests build `agentenv`, use fake agents, and isolate config/data directories with `AGENTENV_CONFIG_HOME` and `AGENTENV_HOME`.
