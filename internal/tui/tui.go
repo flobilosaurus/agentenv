@@ -478,7 +478,8 @@ func renderProfileBox(profile, agent string, lines []string) string {
 	const width = 58
 	var b strings.Builder
 	b.WriteString(borderStyle.Render("╭─ ") + accentStyle.Render("agentenv") + borderStyle.Render(" ───────────────────────────────────────────────╮") + "\n")
-	b.WriteString(profileLine(width, fmt.Sprintf(" %s • %s", profile, agent)))
+	b.WriteString(profileLine(width, profileLabelLine(profile)))
+	b.WriteString(profileLine(width, agentLabelLine(agent)))
 	b.WriteString(borderStyle.Render("├──────────────────────────────────────────────────────────┤") + "\n")
 	for _, line := range lines {
 		b.WriteString(profileLine(width, line))
@@ -494,14 +495,29 @@ func profileLine(width int, line string) string {
 	return borderStyle.Render("│") + line + borderStyle.Render("│") + "\n"
 }
 
+func profileLabelLine(profile string) string {
+	return " Profile  " + selectedStyle.Render(profile)
+}
+
+func agentLabelLine(agent string) string {
+	return " Agent    " + agent
+}
+
 func Banner(profile, agent string) string {
-	const width = 46
-	text := fmt.Sprintf("%s • %s", profile, agent)
-	line := " " + text
-	if pad := width - lipgloss.Width(line); pad > 0 {
-		line += strings.Repeat(" ", pad)
+	return BannerWithWidth(profile, agent, 48)
+}
+
+func BannerWithWidth(profile, agent string, totalWidth int) string {
+	const defaultWidth = 48
+	if totalWidth < defaultWidth {
+		totalWidth = defaultWidth
 	}
-	return borderStyle.Render("┌─ ") + accentStyle.Render("agentenv") + borderStyle.Render(" ───────────────────────────────────┐") + "\n" +
-		borderStyle.Render("│") + line + borderStyle.Render("│") + "\n" +
-		borderStyle.Render("└──────────────────────────────────────────────┘")
+	innerWidth := totalWidth - 2
+	topPrefix := "┌─ agentenv "
+	topDashes := strings.Repeat("─", totalWidth-lipgloss.Width(topPrefix)-1)
+	bottomDashes := strings.Repeat("─", innerWidth)
+	return borderStyle.Render("┌─ ") + accentStyle.Render("agentenv") + borderStyle.Render(" "+topDashes+"┐") + "\n" +
+		profileLine(innerWidth, profileLabelLine(profile)) +
+		profileLine(innerWidth, agentLabelLine(agent)) +
+		borderStyle.Render("└"+bottomDashes+"┘")
 }

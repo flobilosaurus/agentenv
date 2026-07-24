@@ -14,9 +14,20 @@ import (
 
 func TestBanner(t *testing.T) {
 	want := "┌─ agentenv ───────────────────────────────────┐\n" +
-		"│ work • pi                                    │\n" +
+		"│ Profile  work                                │\n" +
+		"│ Agent    pi                                  │\n" +
 		"└──────────────────────────────────────────────┘"
 	if got := Banner("work", "pi"); got != want {
+		t.Fatalf("banner mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
+func TestBannerWithWidth(t *testing.T) {
+	want := "┌─ agentenv ───────────────────────────────────────────────────────────┐\n" +
+		"│ Profile  work                                                        │\n" +
+		"│ Agent    pi                                                          │\n" +
+		"└──────────────────────────────────────────────────────────────────────┘"
+	if got := BannerWithWidth("work", "pi", 72); got != want {
 		t.Fatalf("banner mismatch\nwant:\n%s\ngot:\n%s", want, got)
 	}
 }
@@ -24,7 +35,8 @@ func TestBanner(t *testing.T) {
 func TestProfileSelectionView(t *testing.T) {
 	m := newModel("pi", []config.Profile{{Name: "customer-a"}, {Name: "customer-b"}, {Name: "personal"}})
 	want := "╭─ agentenv ───────────────────────────────────────────────╮\n" +
-		"│ customer-a • pi                                          │\n" +
+		"│ Profile  customer-a                                      │\n" +
+		"│ Agent    pi                                              │\n" +
 		"├──────────────────────────────────────────────────────────┤\n" +
 		"│                                                          │\n" +
 		"│  Select a Profile                                        │\n" +
@@ -47,7 +59,8 @@ func TestProfileCreateView(t *testing.T) {
 	m := newModel("pi", []config.Profile{{Name: "customer-a"}})
 	m.mode = modeCreate
 	want := "╭─ agentenv ───────────────────────────────────────────────╮\n" +
-		"│  • pi                                                    │\n" +
+		"│ Profile                                                  │\n" +
+		"│ Agent    pi                                              │\n" +
 		"├──────────────────────────────────────────────────────────┤\n" +
 		"│                                                          │\n" +
 		"│  Create a Profile                                        │\n" +
@@ -66,7 +79,7 @@ func TestProfileCreateViewShowsTypedProfile(t *testing.T) {
 	m := newModel("pi", []config.Profile{{Name: "customer-a"}})
 	m.mode = modeCreate
 	m.input.SetValue("new-profile")
-	if got := m.View(); !strings.Contains(got, "│ new-profile • pi") {
+	if got := m.View(); !strings.Contains(got, "│ Profile  new-profile") {
 		t.Fatalf("create view should show typed profile in header\ngot:\n%s", got)
 	}
 }
@@ -74,7 +87,7 @@ func TestProfileCreateViewShowsTypedProfile(t *testing.T) {
 func TestProfileSelectionCreateRowShowsBlankProfile(t *testing.T) {
 	m := newModel("pi", []config.Profile{{Name: "customer-a"}})
 	m.cursor = len(m.profiles)
-	if got := m.View(); !strings.Contains(got, "│  • pi") {
+	if got := m.View(); !strings.Contains(got, "│ Profile") || !strings.Contains(got, "│ Agent    pi") {
 		t.Fatalf("selection create row should show blank profile in header\ngot:\n%s", got)
 	}
 }

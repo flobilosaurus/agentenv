@@ -5,6 +5,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
+
+	"github.com/charmbracelet/x/term"
 
 	"github.com/flobilosaurus/agent-env/internal/config"
 	"github.com/flobilosaurus/agent-env/internal/doctor"
@@ -17,6 +20,8 @@ import (
 )
 
 const Version = "0.1.0"
+
+const launchBannerDelay = 1 * time.Second
 
 type App struct {
 	In             io.Reader
@@ -160,7 +165,11 @@ func (a App) run(args []string) int {
 		fmt.Fprintln(a.Err, "agentenv:", err)
 		return 127
 	}
-	fmt.Fprintln(a.Out, tui.Banner(profile, agent))
+	termWidth := terminalWidth(a.Out)
+	fmt.Fprintln(a.Out, tui.BannerWithWidth(profile, agent, termWidth))
+	if termWidth > 0 {
+		time.Sleep(launchBannerDelay)
+	}
 	extraEnv := map[string]string{
 		"XDG_CONFIG_HOME": filepath.Join(home, ".config"),
 		"XDG_DATA_HOME":   filepath.Join(home, ".local", "share"),
@@ -170,6 +179,18 @@ func (a App) run(args []string) int {
 		extraEnv["CLAUDE_CONFIG_DIR"] = filepath.Join(home, ".claude")
 	}
 	return runner.RunAgentWithEnv(real, pass, home, extraEnv, runner.IO{Stdin: a.In, Stdout: a.Out, Stderr: a.Err})
+}
+
+func terminalWidth(w io.Writer) int {
+	file, ok := w.(*os.File)
+	if !ok {
+		return 0
+	}
+	width, _, err := term.GetSize(file.Fd())
+	if err != nil {
+		return 0
+	}
+	return width
 }
 
 func (a App) chooseAndSaveProfile(p paths.Paths, cfgPath string, cfg *config.Config, project, agent string) (string, error) {

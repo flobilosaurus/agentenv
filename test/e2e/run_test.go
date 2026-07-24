@@ -26,7 +26,7 @@ func TestRunMappedProjectSetsHomeAndArgs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run failed: %v\n%s", err, out)
 	}
-	if !strings.Contains(string(out), "│ customer-a • pi") {
+	if !strings.Contains(string(out), "│ Profile  customer-a") || !strings.Contains(string(out), "│ Agent    pi") {
 		t.Fatalf("missing banner: %s", out)
 	}
 	got, _ := os.ReadFile(rec)
