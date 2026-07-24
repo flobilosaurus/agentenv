@@ -34,6 +34,10 @@ type ProfileRemovePrompter interface {
 	ChooseProfileToRemove(profiles []config.Profile) (profile string, err error)
 }
 
+type WrapperUnwrapPrompter interface {
+	ChooseWrapperToUnwrap(agents []string) (agent string, err error)
+}
+
 type BubblePrompter struct{}
 
 func (BubblePrompter) ChooseProfile(agent string, profiles []config.Profile, sources []profileimport.Source, groups []profileimport.Group) (ProfileChoice, error) {
@@ -60,6 +64,20 @@ func (BubblePrompter) ChooseProfileToRemove(profiles []config.Profile) (string, 
 	fm := res.(removeModel)
 	if fm.cancelled {
 		return "", fmt.Errorf("profile removal cancelled")
+	}
+	return fm.selected, nil
+}
+
+func (BubblePrompter) ChooseWrapperToUnwrap(agents []string) (string, error) {
+	m := newUnwrapModel(agents)
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	res, err := p.Run()
+	if err != nil {
+		return "", err
+	}
+	fm := res.(unwrapModel)
+	if fm.cancelled {
+		return "", fmt.Errorf("unwrap cancelled")
 	}
 	return fm.selected, nil
 }
@@ -392,6 +410,56 @@ func (m removeModel) View() string {
 		items = append(items, line)
 	}
 	items = append(items, "", mutedStyle.Render("  ↑/↓/j/k move • enter remove • esc/ctrl+c cancel"))
+	return renderActionBox(items)
+}
+
+type unwrapModel struct {
+	agents    []string
+	cursor    int
+	selected  string
+	cancelled bool
+}
+
+func newUnwrapModel(agents []string) unwrapModel {
+	return unwrapModel{agents: agents}
+}
+
+func (m unwrapModel) Init() tea.Cmd { return nil }
+func (m unwrapModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc":
+			m.cancelled = true
+			return m, tea.Quit
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case "down", "j":
+			if m.cursor < len(m.agents)-1 {
+				m.cursor++
+			}
+		case "enter":
+			if len(m.agents) > 0 {
+				m.selected = m.agents[m.cursor]
+			}
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m unwrapModel) View() string {
+	items := []string{"", accentStyle.Render("  Unwrap an Agent"), mutedStyle.Render("  Select a wrapper binary to delete"), ""}
+	for i, agent := range m.agents {
+		line := "    " + agent
+		if i == m.cursor {
+			line = selectedStyle.Render("  ▸ " + agent)
+		}
+		items = append(items, line)
+	}
+	items = append(items, "", mutedStyle.Render("  ↑/↓/j/k move • enter unwrap • esc/ctrl+c cancel"))
 	return renderActionBox(items)
 }
 

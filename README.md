@@ -27,6 +27,7 @@ mise run build
 ```sh
 agentenv run [--select] <agent> [args...]
 agentenv wrap <agent>
+agentenv unwrap
 agentenv remove [profile]
 agentenv doctor [agent]
 ```
@@ -59,6 +60,8 @@ For every launched agent, agentenv sets `XDG_CONFIG_HOME=$HOME/.config`, `XDG_DA
 Imports copy whole selected files/directories before the agent launches. They do not merge contents. If a target path already exists in the new profile, agentenv skips that group, never overwrites it, and reports the skipped path.
 
 `wrap <agent>` writes `$AGENTENV_HOME/bin/<agent>` and updates your shell startup file (`.zshrc`, `.bashrc`, `.profile`, Nushell `env.nu`, or fish `conf.d/agentenv.fish`) with an agentenv-managed block that puts that wrapper directory before real agent binaries on `PATH`. Restart your shell or source the updated file before running the agent command directly.
+
+`unwrap` opens an interactive selector for existing agentenv-generated wrappers and deletes the selected wrapper binary from `$AGENTENV_HOME/bin`.
 
 `remove [profile]` deletes the profile from config, removes project mappings that used it, and deletes `$AGENTENV_HOME/profiles/<profile>`. Without a profile argument, it opens an interactive profile selector.
 

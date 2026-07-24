@@ -10,6 +10,7 @@ import (
 	"github.com/flobilosaurus/agent-env/internal/config"
 	"github.com/flobilosaurus/agent-env/internal/profileimport"
 	"github.com/flobilosaurus/agent-env/internal/tui"
+	"github.com/flobilosaurus/agent-env/internal/wrapper"
 )
 
 type fakePrompter struct {
@@ -37,6 +38,18 @@ type fakeRemovePrompter struct {
 func (f *fakeRemovePrompter) ChooseProfileToRemove(profiles []config.Profile) (string, error) {
 	f.calls++
 	return f.profile, nil
+}
+
+type fakeUnwrapPrompter struct {
+	agent  string
+	calls  int
+	agents []string
+}
+
+func (f *fakeUnwrapPrompter) ChooseWrapperToUnwrap(agents []string) (string, error) {
+	f.calls++
+	f.agents = append([]string(nil), agents...)
+	return f.agent, nil
 }
 
 func TestMissingArgs(t *testing.T) {
@@ -202,6 +215,60 @@ func TestRunUnknownLeadingOptionRemainsAgentName(t *testing.T) {
 	got, _ := os.ReadFile(record)
 	if !strings.Contains(string(got), "AGENT=--foo") {
 		t.Fatalf("did not execute --foo agent: %s", got)
+	}
+}
+
+func TestUnwrapUsesSelectorAndDeletesSelectedWrapper(t *testing.T) {
+	cfgHome := t.TempDir()
+	dataHome := t.TempDir()
+	t.Setenv("AGENTENV_CONFIG_HOME", cfgHome)
+	t.Setenv("AGENTENV_HOME", dataHome)
+	binDir := filepath.Join(dataHome, "bin")
+	if _, err := wrapper.Install(binDir, "/bin/agentenv", "pi"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wrapper.Install(binDir, "/bin/agentenv", "codex"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(binDir, "real"), []byte("not agentenv"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prompter := &fakeUnwrapPrompter{agent: "pi"}
+	var out, errBuf bytes.Buffer
+	code := App{Out: &out, Err: &errBuf, UnwrapPrompter: prompter}.Run([]string{"unwrap"})
+	if code != 0 {
+		t.Fatalf("code=%d err=%s", code, errBuf.String())
+	}
+	if prompter.calls != 1 || strings.Join(prompter.agents, ",") != "codex,pi" {
+		t.Fatalf("prompter calls=%d agents=%v", prompter.calls, prompter.agents)
+	}
+	if _, err := os.Stat(filepath.Join(binDir, "pi")); !os.IsNotExist(err) {
+		t.Fatalf("selected wrapper still exists or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(binDir, "codex")); err != nil {
+		t.Fatalf("other wrapper removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(binDir, "real")); err != nil {
+		t.Fatalf("non-wrapper touched: %v", err)
+	}
+	if !strings.Contains(out.String(), "removed wrapper:") {
+		t.Fatalf("missing success: %s", out.String())
+	}
+}
+
+func TestUnwrapWithoutWrappersFailsBeforePrompt(t *testing.T) {
+	cfgHome := t.TempDir()
+	dataHome := t.TempDir()
+	t.Setenv("AGENTENV_CONFIG_HOME", cfgHome)
+	t.Setenv("AGENTENV_HOME", dataHome)
+	prompter := &fakeUnwrapPrompter{agent: "pi"}
+	var errBuf bytes.Buffer
+	code := App{Err: &errBuf, UnwrapPrompter: prompter}.Run([]string{"unwrap"})
+	if code == 0 {
+		t.Fatal("expected failure")
+	}
+	if prompter.calls != 0 || !strings.Contains(errBuf.String(), "no wrappers to unwrap") {
+		t.Fatalf("calls=%d err=%s", prompter.calls, errBuf.String())
 	}
 }
 

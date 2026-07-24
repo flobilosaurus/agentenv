@@ -23,6 +23,7 @@ type App struct {
 	Out, Err       io.Writer
 	Prompter       tui.ProfilePrompter
 	RemovePrompter tui.ProfileRemovePrompter
+	UnwrapPrompter tui.WrapperUnwrapPrompter
 }
 
 func (a App) Run(args []string) int {
@@ -50,6 +51,8 @@ func (a App) Run(args []string) int {
 		return a.run(args[1:])
 	case "wrap":
 		return a.wrap(args[1:])
+	case "unwrap":
+		return a.unwrap(args[1:])
 	case "remove":
 		return a.remove(args[1:])
 	case "doctor":
@@ -66,6 +69,7 @@ func Usage() string {
 Commands:
   run [--select] <agent> [args...]   Run an agent with project profile HOME isolation
   wrap <agent>                       Install a wrapper into the agentenv bin directory
+  unwrap                             Select and delete an agentenv wrapper binary
   remove [profile]                   Remove a profile, its mappings, and its folder
   doctor [agent]                     Check config, mappings, profile homes, and PATH
   version                            Print version
@@ -79,6 +83,8 @@ func (a App) commandUsage(cmd string) string {
 		return "Usage: agentenv run [--select] <agent> [args...]\n"
 	case "wrap":
 		return "Usage: agentenv wrap <agent>\n"
+	case "unwrap":
+		return "Usage: agentenv unwrap\n"
 	case "remove":
 		return "Usage: agentenv remove [profile]\n"
 	case "doctor":
@@ -259,6 +265,47 @@ func (a App) wrap(args []string) int {
 	} else {
 		fmt.Fprintf(a.Out, "PATH setup already up to date: %s\n", pathResult.ProfilePath)
 	}
+	return 0
+}
+
+func (a App) unwrap(args []string) int {
+	if len(args) != 0 {
+		fmt.Fprint(a.Err, a.commandUsage("unwrap"))
+		return 2
+	}
+	p, err := paths.Resolve()
+	if err != nil {
+		fmt.Fprintln(a.Err, "agentenv:", err)
+		return 1
+	}
+	agents, err := wrapper.List(p.BinDir())
+	if err != nil {
+		fmt.Fprintln(a.Err, "agentenv: list wrappers:", err)
+		return 1
+	}
+	if len(agents) == 0 {
+		fmt.Fprintln(a.Err, "agentenv: no wrappers to unwrap")
+		return 1
+	}
+	if os.Getenv("AGENTENV_NONINTERACTIVE") == "1" {
+		fmt.Fprintln(a.Err, "agentenv: cannot select a wrapper in non-interactive mode")
+		return 1
+	}
+	prompter := a.UnwrapPrompter
+	if prompter == nil {
+		prompter = tui.BubblePrompter{}
+	}
+	agent, err := prompter.ChooseWrapperToUnwrap(agents)
+	if err != nil {
+		fmt.Fprintln(a.Err, "agentenv:", err)
+		return 1
+	}
+	target, err := wrapper.Uninstall(p.BinDir(), agent)
+	if err != nil {
+		fmt.Fprintln(a.Err, "agentenv:", err)
+		return 1
+	}
+	fmt.Fprintf(a.Out, "removed wrapper: %s\n", target)
 	return 0
 }
 
