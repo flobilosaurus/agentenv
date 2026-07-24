@@ -9,6 +9,8 @@
 `agentenv` automatically launches AI coding agents with the correct project identity.
 Keep authentication, configuration, and local agent state isolated per project—so the right account is always used automatically.
 
+![agentenv launching OpenCode](assets/agentenv-run-opencode.gif)
+
 ```text
 project-a ──▶ work-profile     ──▶ isolated HOME
 project-b ──▶ oss-profile      ──▶ isolated HOME
