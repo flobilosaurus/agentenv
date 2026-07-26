@@ -55,8 +55,8 @@ func AvailableGroups(source Source, groups []Group) []Group {
 	available := make([]Group, 0, len(groups))
 	for _, group := range groups {
 		path := filepath.Join(source.Path, group.SourceRel)
-		info, err := os.Lstat(path)
-		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+		info, err := os.Stat(path)
+		if err != nil {
 			continue
 		}
 		switch group.Kind {
