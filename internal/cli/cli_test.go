@@ -158,6 +158,38 @@ func TestRunSetsXDGDirsToProfileHomeForAllAgents(t *testing.T) {
 	}
 }
 
+func TestRunEnvSetsEnvironmentForAgent(t *testing.T) {
+	cfgHome, dataHome, realBin, project, record := setupRunTest(t)
+	writeTestConfig(t, cfgHome, project, "work")
+	if err := os.WriteFile(filepath.Join(realBin, "test-agent"), []byte("#!/bin/sh\nprintf 'HOME=%s\nDOCKER_CONFIG=%s\nEMPTY=%s\nARGS=%s\n' \"$HOME\" \"$DOCKER_CONFIG\" \"$EMPTY\" \"$*\" > \""+record+"\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dockerConfig := filepath.Join(t.TempDir(), ".docker")
+	var errBuf bytes.Buffer
+	code := App{Err: &errBuf}.Run([]string{"run", "--env", "DOCKER_CONFIG=" + dockerConfig, "--env=EMPTY=", "test-agent", "run", "pi"})
+	if code != 0 {
+		t.Fatalf("code=%d err=%s", code, errBuf.String())
+	}
+	got, _ := os.ReadFile(record)
+	home := filepath.Join(dataHome, "profiles", "work", "home")
+	if !strings.Contains(string(got), "HOME="+home) || !strings.Contains(string(got), "DOCKER_CONFIG="+dockerConfig) || !strings.Contains(string(got), "EMPTY=\n") || !strings.Contains(string(got), "ARGS=run pi") {
+		t.Fatalf("wrong env: %s", got)
+	}
+}
+
+func TestRunEnvRejectsInvalidAssignmentAndHomeOverride(t *testing.T) {
+	for _, args := range [][]string{
+		{"run", "--env", "INVALID", "pi"},
+		{"run", "--env", "HOME=/tmp/other", "pi"},
+	} {
+		var errBuf bytes.Buffer
+		code := App{Err: &errBuf}.Run(args)
+		if code != 2 || !strings.Contains(errBuf.String(), "agentenv:") {
+			t.Fatalf("args=%v code=%d err=%s", args, code, errBuf.String())
+		}
+	}
+}
+
 func TestRunSelectAfterAgentIsPassthrough(t *testing.T) {
 	cfgHome, _, _, project, record := setupRunTest(t)
 	writeTestConfig(t, cfgHome, project, "old-profile")
@@ -182,7 +214,7 @@ func TestRunSelectWithoutAgentShowsUsage(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("code=%d", code)
 	}
-	if !strings.Contains(errBuf.String(), "Usage: agentenv run [--select] <agent> [args...]") {
+	if !strings.Contains(errBuf.String(), "Usage: agentenv run [--select] [--env KEY=VALUE]... <agent> [args...]") {
 		t.Fatalf("missing usage: %s", errBuf.String())
 	}
 }
