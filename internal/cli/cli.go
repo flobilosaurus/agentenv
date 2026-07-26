@@ -416,7 +416,7 @@ func (a App) remove(args []string) int {
 		return 1
 	}
 	profileDir := p.ProfileDir(profile)
-	if err := os.RemoveAll(profileDir); err != nil {
+	if err := removeAll(profileDir); err != nil {
 		fmt.Fprintln(a.Err, "agentenv: remove profile folder:", err)
 		return 1
 	}
@@ -426,6 +426,18 @@ func (a App) remove(args []string) int {
 	}
 	fmt.Fprintf(a.Out, "removed profile %q and folder: %s\n", profile, profileDir)
 	return 0
+}
+
+// removeAll is like os.RemoveAll but first makes directories writable so that
+// read-only trees (e.g. Go module cache) can be deleted without permission errors.
+func removeAll(path string) error {
+	_ = filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			_ = os.Chmod(p, 0o755)
+		}
+		return nil
+	})
+	return os.RemoveAll(path)
 }
 
 func (a App) doctor(args []string) int {
