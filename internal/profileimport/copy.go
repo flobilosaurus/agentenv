@@ -54,12 +54,9 @@ func ImportSelection(targetHome string, intent Intent, catalog []Group) (Result,
 }
 
 func validateSourceKind(path string, kind Kind) error {
-	info, err := os.Lstat(path)
+	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("source %s: %w", path, err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("source %s is a symlink, expected %s", path, kind)
 	}
 	if kind == KindFile && !info.Mode().IsRegular() {
 		return fmt.Errorf("source %s is not a regular file", path)
@@ -71,19 +68,29 @@ func validateSourceKind(path string, kind Kind) error {
 }
 
 func copyPath(src, dst string) error {
-	info, err := os.Lstat(src)
+	return copyPathFollowing(src, dst, make(map[string]bool))
+}
+
+func copyPathFollowing(src, dst string, activeDirs map[string]bool) error {
+	info, err := os.Stat(src)
 	if err != nil {
 		return err
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		link, err := os.Readlink(src)
+	if info.IsDir() {
+		resolved, err := filepath.EvalSymlinks(src)
 		if err != nil {
 			return err
 		}
-		return os.Symlink(link, dst)
-	}
-	if info.IsDir() {
-		return copyDir(src, dst, info.Mode().Perm())
+		resolved, err = filepath.Abs(resolved)
+		if err != nil {
+			return err
+		}
+		if activeDirs[resolved] {
+			return fmt.Errorf("source directory cycle through %s", src)
+		}
+		activeDirs[resolved] = true
+		defer delete(activeDirs, resolved)
+		return copyDir(src, dst, info.Mode().Perm(), activeDirs)
 	}
 	if info.Mode().IsRegular() {
 		return copyFile(src, dst, info.Mode().Perm())
@@ -91,7 +98,7 @@ func copyPath(src, dst string) error {
 	return fmt.Errorf("unsupported file type %s", src)
 }
 
-func copyDir(src, dst string, mode os.FileMode) error {
+func copyDir(src, dst string, mode os.FileMode, activeDirs map[string]bool) error {
 	if err := os.Mkdir(dst, mode); err != nil {
 		return err
 	}
@@ -100,7 +107,7 @@ func copyDir(src, dst string, mode os.FileMode) error {
 		return err
 	}
 	for _, entry := range entries {
-		if err := copyPath(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name())); err != nil {
+		if err := copyPathFollowing(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name()), activeDirs); err != nil {
 			return err
 		}
 	}

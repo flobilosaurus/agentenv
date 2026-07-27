@@ -45,17 +45,24 @@ func TestAvailableGroupsFiltersExistingMatchingKind(t *testing.T) {
 	}
 }
 
-func TestAvailableGroupsHidesTopLevelSymlinkKindMismatches(t *testing.T) {
-	home := t.TempDir()
+func TestAvailableGroupsFollowsTopLevelSymlinks(t *testing.T) {
+	home, targets := t.TempDir(), t.TempDir()
 	mkdir(t, filepath.Join(home, ".pi/agent"))
-	if err := os.Symlink("missing", filepath.Join(home, ".pi/agent/skills")); err != nil {
+	writeFile(t, filepath.Join(targets, "settings.json"), "settings")
+	mkdir(t, filepath.Join(targets, "skills"))
+	if err := os.Symlink(filepath.Join(targets, "settings.json"), filepath.Join(home, ".pi/agent/settings.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(targets, "skills"), filepath.Join(home, ".pi/agent/skills")); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink("missing", filepath.Join(home, ".pi/agent/auth.json")); err != nil {
 		t.Fatal(err)
 	}
-	if got := AvailableGroups(Source{Path: home}, Catalog()); len(got) != 0 {
-		t.Fatalf("got symlink groups: %+v", groupIDs(got))
+	got := AvailableGroups(Source{Path: home}, Catalog())
+	want := []string{"pi.settings", "pi.skills"}
+	if ids := groupIDs(got); !reflect.DeepEqual(ids, want) {
+		t.Fatalf("ids=%+v want=%+v", ids, want)
 	}
 }
 
@@ -129,18 +136,57 @@ func TestImportSelectionCopiesDirectoryRecursively(t *testing.T) {
 	}
 }
 
-func TestImportSelectionCopiesNestedSymlinksAsSymlinks(t *testing.T) {
-	src, dst := t.TempDir(), t.TempDir()
+func TestImportSelectionDereferencesTopLevelSymlinks(t *testing.T) {
+	src, dst, targets := t.TempDir(), t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(targets, "settings.json"), "settings")
+	writeFile(t, filepath.Join(targets, "skills/a/SKILL.md"), "skill")
+	mkdir(t, filepath.Join(src, ".pi/agent"))
+	if err := os.Symlink(filepath.Join(targets, "settings.json"), filepath.Join(src, ".pi/agent/settings.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(targets, "skills"), filepath.Join(src, ".pi/agent/skills")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ImportSelection(dst, Intent{Source: Source{Label: "src", Path: src}, GroupIDs: []string{"pi.settings", "pi.skills"}}, Catalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFile(t, filepath.Join(dst, ".pi/agent/settings.json"), "settings")
+	assertFile(t, filepath.Join(dst, ".pi/agent/skills/a/SKILL.md"), "skill")
+	assertNotSymlink(t, filepath.Join(dst, ".pi/agent/settings.json"))
+	assertNotSymlink(t, filepath.Join(dst, ".pi/agent/skills"))
+}
+
+func TestImportSelectionDereferencesNestedSymlinks(t *testing.T) {
+	src, dst, targets := t.TempDir(), t.TempDir(), t.TempDir()
 	mkdir(t, filepath.Join(src, ".pi/agent/skills"))
-	if err := os.Symlink("/outside", filepath.Join(src, ".pi/agent/skills/link")); err != nil {
+	writeFile(t, filepath.Join(targets, "prompt.md"), "prompt")
+	writeFile(t, filepath.Join(targets, "bundle/SKILL.md"), "bundle")
+	if err := os.Symlink(filepath.Join(targets, "prompt.md"), filepath.Join(src, ".pi/agent/skills/prompt.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(targets, "bundle"), filepath.Join(src, ".pi/agent/skills/bundle")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ImportSelection(dst, Intent{Source: Source{Label: "src", Path: src}, GroupIDs: []string{"pi.skills"}}, Catalog()); err != nil {
 		t.Fatal(err)
 	}
-	got, err := os.Readlink(filepath.Join(dst, ".pi/agent/skills/link"))
-	if err != nil || got != "/outside" {
-		t.Fatalf("link=%q err=%v", got, err)
+	assertFile(t, filepath.Join(dst, ".pi/agent/skills/prompt.md"), "prompt")
+	assertFile(t, filepath.Join(dst, ".pi/agent/skills/bundle/SKILL.md"), "bundle")
+	assertNotSymlink(t, filepath.Join(dst, ".pi/agent/skills/prompt.md"))
+	assertNotSymlink(t, filepath.Join(dst, ".pi/agent/skills/bundle"))
+}
+
+func TestImportSelectionRejectsDirectorySymlinkCycles(t *testing.T) {
+	src, dst := t.TempDir(), t.TempDir()
+	skills := filepath.Join(src, ".pi/agent/skills")
+	mkdir(t, skills)
+	if err := os.Symlink(skills, filepath.Join(skills, "loop")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ImportSelection(dst, Intent{Source: Source{Label: "src", Path: src}, GroupIDs: []string{"pi.skills"}}, Catalog())
+	if err == nil || !strings.Contains(err.Error(), "source directory cycle") {
+		t.Fatalf("err=%v", err)
 	}
 }
 
@@ -238,5 +284,16 @@ func assertFile(t *testing.T, path, content string) {
 	}
 	if string(got) != content {
 		t.Fatalf("%s=%q want %q", path, got, content)
+	}
+}
+
+func assertNotSymlink(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("%s is a symlink", path)
 	}
 }

@@ -164,7 +164,7 @@ Supported group families include:
 - OpenCode: `.config/opencode/opencode.json`, `tui.json`, agents, plugins, themes, `.local/share/opencode/auth.json`, `.local/state/opencode/` state such as selected TUI theme
 - Codex: `.codex/config.toml`, `auth.json`, `skills/`
 
-Imports copy whole selected files/directories before the agent launches. They do not merge contents. If a target path already exists in the new profile, agentenv skips that group, never overwrites it, and reports the skipped path.
+Imports copy whole selected files/directories before the agent launches. Source symlinks are followed, and their destination files/directories are copied into the profile rather than recreated as symlinks. This can include content outside the selected source home. Imports do not merge contents. If a target path already exists in the new profile, agentenv skips that group, never overwrites it, and reports the skipped path.
 
 ## Claude Code notes
 
