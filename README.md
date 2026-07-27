@@ -46,6 +46,7 @@ You can also run agents explicitly:
 ```sh
 agentenv run pi --version
 agentenv run --select pi
+agentenv run --env DOCKER_CONFIG="$HOME/.docker" sandbox run pi
 agentenv run claude
 agentenv run codex --help
 ```
@@ -75,7 +76,7 @@ AGENTENV_VERSION=v0.1.0 sh -c "$(curl -fsSL https://raw.githubusercontent.com/fl
 ## Commands
 
 ```sh
-agentenv run [--select] <agent> [args...]
+agentenv run [--select] [--env KEY=VALUE]... <agent> [args...]
 agentenv wrap <agent>
 agentenv unwrap
 agentenv remove [profile]
@@ -88,7 +89,39 @@ agentenv doctor [agent]
 
 On first use in an unmapped project, it opens a terminal profile selector/creator and stores the local project-to-profile mapping. When creating a profile, you can optionally import supported agent files from your original `HOME` or an existing agentenv profile.
 
-Use `agentenv run --select <agent>` to force the selector even when a mapping already exists. Arguments after `<agent>` are passed through unchanged.
+Use `agentenv run --select <agent>` to force the selector even when a mapping already exists. Use repeatable `--env KEY=VALUE` options before `<agent>` to set environment variables for one run. `HOME` cannot be overridden because it provides profile isolation. Arguments after `<agent>` are passed through unchanged.
+
+#### Docker-backed agent runners
+
+Docker stores contexts, credentials, and client configuration under `$HOME/.docker`. Because agentenv replaces `HOME` with the selected profile home, Docker-backed runners such as `sandbox` cannot see the host Docker configuration by default. This may appear as `docker daemon is not running`, especially when using Colima or another non-default Docker context.
+
+Pass the host Docker configuration explicitly. In POSIX shells such as Bash or Zsh:
+
+```sh
+agentenv run --env DOCKER_CONFIG="$HOME/.docker" sandbox run pi
+```
+
+In Nushell, environment variables use `$env` and interpolated strings use `$"..."`:
+
+```nu
+agentenv run --env $"DOCKER_CONFIG=($env.HOME)/.docker" sandbox run pi
+```
+
+The shell expands the home path before agentenv starts, so Docker receives the absolute path to the host configuration while the agent still receives its isolated profile `HOME`.
+
+For repeated use, set `DOCKER_CONFIG` in the shell and pass it through. Bash/Zsh:
+
+```sh
+export DOCKER_CONFIG="$HOME/.docker"
+agentenv run --env DOCKER_CONFIG="$DOCKER_CONFIG" sandbox run pi
+```
+
+Nushell:
+
+```nu
+$env.DOCKER_CONFIG = ($env.HOME | path join ".docker")
+agentenv run --env $"DOCKER_CONFIG=($env.DOCKER_CONFIG)" sandbox run pi
+```
 
 ### `wrap <agent>`
 

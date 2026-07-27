@@ -37,6 +37,29 @@ func TestRunMappedProjectSetsHomeAndArgs(t *testing.T) {
 	}
 }
 
+func TestRunSetsExplicitEnvironment(t *testing.T) {
+	bin := buildAgentenv(t)
+	cfg := t.TempDir()
+	data := t.TempDir()
+	project := t.TempDir()
+	realBin := t.TempDir()
+	rec := filepath.Join(t.TempDir(), "record")
+	writeConfig(t, cfg, project, "customer-a")
+	fakeAgent(t, realBin, "test-agent", "#!/bin/sh\nprintf 'DOCKER_CONFIG=%s\nARGS=%s\n' \"$DOCKER_CONFIG\" \"$*\" > \""+rec+"\"\n")
+	dockerConfig := filepath.Join(t.TempDir(), ".docker")
+	cmd := exec.Command(bin, "run", "--env", "DOCKER_CONFIG="+dockerConfig, "test-agent", "run", "pi")
+	cmd.Dir = project
+	cmd.Env = baseEnv(cfg, data, realBin)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, out)
+	}
+	got, _ := os.ReadFile(rec)
+	if !strings.Contains(string(got), "DOCKER_CONFIG="+dockerConfig) || !strings.Contains(string(got), "ARGS=run pi") {
+		t.Fatalf("record wrong: %s", got)
+	}
+}
+
 func TestRunSkipsWrapperBinAndPropagatesExit(t *testing.T) {
 	bin := buildAgentenv(t)
 	cfg := t.TempDir()
@@ -150,7 +173,7 @@ func TestRunSelectWithoutAgentShowsUsageAndExits2(t *testing.T) {
 	if ee := err.(*exec.ExitError); ee.ExitCode() != 2 {
 		t.Fatalf("exit=%d output=%s", ee.ExitCode(), out)
 	}
-	if !strings.Contains(string(out), "Usage: agentenv run [--select] <agent> [args...]") {
+	if !strings.Contains(string(out), "Usage: agentenv run [--select] [--env KEY=VALUE]... <agent> [args...]") {
 		t.Fatalf("missing usage: %s", out)
 	}
 }

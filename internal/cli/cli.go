@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/x/term"
@@ -72,7 +73,8 @@ func Usage() string {
 	return `Usage: agentenv <command> [args]
 
 Commands:
-  run [--select] <agent> [args...]   Run an agent with project profile HOME isolation
+  run [--select] [--env KEY=VALUE]... <agent> [args...]
+                                     Run an agent with project profile HOME isolation
   wrap <agent>                       Install a wrapper into the agentenv bin directory
   unwrap                             Select and delete an agentenv wrapper binary
   remove [profile]                   Remove a profile, its mappings, and its folder
@@ -85,7 +87,7 @@ Commands:
 func (a App) commandUsage(cmd string) string {
 	switch cmd {
 	case "run":
-		return "Usage: agentenv run [--select] <agent> [args...]\n"
+		return "Usage: agentenv run [--select] [--env KEY=VALUE]... <agent> [args...]\n"
 	case "wrap":
 		return "Usage: agentenv wrap <agent>\n"
 	case "unwrap":
@@ -98,22 +100,60 @@ func (a App) commandUsage(cmd string) string {
 	return Usage()
 }
 
-func parseRunArgs(args []string) (forceSelect bool, agent string, pass []string, ok bool) {
-	if len(args) == 0 {
-		return false, "", nil, false
-	}
-	if args[0] == "--select" {
-		if len(args) == 1 {
-			return true, "", nil, false
+func parseRunArgs(args []string) (forceSelect bool, runEnv map[string]string, agent string, pass []string, err error) {
+	runEnv = make(map[string]string)
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--select":
+			forceSelect = true
+		case args[i] == "--env":
+			i++
+			if i >= len(args) {
+				return false, nil, "", nil, fmt.Errorf("--env requires KEY=VALUE")
+			}
+			key, value, err := parseEnvAssignment(args[i])
+			if err != nil {
+				return false, nil, "", nil, err
+			}
+			runEnv[key] = value
+		case strings.HasPrefix(args[i], "--env="):
+			key, value, err := parseEnvAssignment(strings.TrimPrefix(args[i], "--env="))
+			if err != nil {
+				return false, nil, "", nil, err
+			}
+			runEnv[key] = value
+		default:
+			return forceSelect, runEnv, args[i], args[i+1:], nil
 		}
-		return true, args[1], args[2:], true
 	}
-	return false, args[0], args[1:], true
+	return false, nil, "", nil, fmt.Errorf("agent is required")
+}
+
+func parseEnvAssignment(assignment string) (string, string, error) {
+	key, value, ok := strings.Cut(assignment, "=")
+	if !ok || !validEnvName(key) {
+		return "", "", fmt.Errorf("invalid environment assignment %q; expected KEY=VALUE", assignment)
+	}
+	if key == "HOME" {
+		return "", "", fmt.Errorf("cannot override HOME; agentenv uses it for profile isolation")
+	}
+	return key, value, nil
+}
+
+func validEnvName(name string) bool {
+	for i, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' || (i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return name != ""
 }
 
 func (a App) run(args []string) int {
-	forceSelect, agent, pass, ok := parseRunArgs(args)
-	if !ok {
+	forceSelect, runEnv, agent, pass, err := parseRunArgs(args)
+	if err != nil {
+		fmt.Fprintln(a.Err, "agentenv:", err)
 		fmt.Fprint(a.Err, a.commandUsage("run"))
 		return 2
 	}
@@ -177,6 +217,9 @@ func (a App) run(args []string) int {
 	}
 	if agent == "claude" {
 		extraEnv["CLAUDE_CONFIG_DIR"] = filepath.Join(home, ".claude")
+	}
+	for key, value := range runEnv {
+		extraEnv[key] = value
 	}
 	return runner.RunAgentWithEnv(real, pass, home, extraEnv, runner.IO{Stdin: a.In, Stdout: a.Out, Stderr: a.Err})
 }
