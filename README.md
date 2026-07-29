@@ -51,6 +51,16 @@ agentenv run claude
 agentenv run codex --help
 ```
 
+### Run additional agent commands
+
+`agentenv run` also works with agent-specific commands, keeping their configuration and installed resources inside the selected profile. For example, install a Pi extension into the active profile:
+
+```sh
+agentenv run pi install git:github.com/jonjonrankin/pi-caveman
+```
+
+![Installing a Pi extension with agentenv](assets/pi_install_extension_example.png)
+
 ## Install
 
 ```sh
