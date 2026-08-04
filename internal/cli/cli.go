@@ -211,9 +211,11 @@ func (a App) run(args []string) int {
 		time.Sleep(launchBannerDelay)
 	}
 	extraEnv := map[string]string{
-		"XDG_CONFIG_HOME": filepath.Join(home, ".config"),
-		"XDG_DATA_HOME":   filepath.Join(home, ".local", "share"),
-		"XDG_STATE_HOME":  filepath.Join(home, ".local", "state"),
+		"AGENTENV_CONFIG_HOME": p.ConfigHome,
+		"AGENTENV_HOME":        p.DataRoot,
+		"XDG_CONFIG_HOME":      filepath.Join(home, ".config"),
+		"XDG_DATA_HOME":        filepath.Join(home, ".local", "share"),
+		"XDG_STATE_HOME":       filepath.Join(home, ".local", "state"),
 	}
 	if agent == "claude" {
 		extraEnv["CLAUDE_CONFIG_DIR"] = filepath.Join(home, ".claude")

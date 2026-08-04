@@ -158,6 +158,46 @@ func TestRunSetsXDGDirsToProfileHomeForAllAgents(t *testing.T) {
 	}
 }
 
+func TestRunPropagatesResolvedAgentenvRoots(t *testing.T) {
+	hostHome := t.TempDir()
+	realBin := t.TempDir()
+	project := t.TempDir()
+	record := filepath.Join(t.TempDir(), "record")
+	t.Setenv("HOME", hostHome)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("AGENTENV_CONFIG_HOME", "")
+	t.Setenv("AGENTENV_HOME", "")
+	t.Setenv("PATH", realBin)
+
+	cfgHome, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataHome := filepath.Join(hostHome, ".local", "share", "agentenv")
+	writeTestConfig(t, cfgHome, project, "work")
+	if err := os.WriteFile(filepath.Join(realBin, "nested-agent"), []byte("#!/bin/sh\nprintf 'AGENTENV_CONFIG_HOME=%s\nAGENTENV_HOME=%s\n' \"$AGENTENV_CONFIG_HOME\" \"$AGENTENV_HOME\" > \""+record+"\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(project); err != nil {
+		t.Fatal(err)
+	}
+
+	var errBuf bytes.Buffer
+	code := App{Err: &errBuf}.Run([]string{"run", "nested-agent"})
+	if code != 0 {
+		t.Fatalf("code=%d err=%s", code, errBuf.String())
+	}
+	got, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "AGENTENV_CONFIG_HOME="+cfgHome+"\n") || !strings.Contains(string(got), "AGENTENV_HOME="+dataHome+"\n") {
+		t.Fatalf("wrong agentenv roots: %s", got)
+	}
+}
+
 func TestRunEnvSetsEnvironmentForAgent(t *testing.T) {
 	cfgHome, dataHome, realBin, project, record := setupRunTest(t)
 	writeTestConfig(t, cfgHome, project, "work")

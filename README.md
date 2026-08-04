@@ -99,6 +99,8 @@ agentenv doctor [agent]
 
 On first use in an unmapped project, it opens a terminal profile selector/creator and stores the local project-to-profile mapping. When creating a profile, you can optionally import supported agent files from your original `HOME` or an existing agentenv profile.
 
+Resolved agentenv config and data roots are passed into the agent. If an agent starts another wrapped agent, the nested process reuses the same project mapping and profile instead of resolving roots inside the isolated profile home.
+
 Use `agentenv run --select <agent>` to force the selector even when a mapping already exists. Use repeatable `--env KEY=VALUE` options before `<agent>` to set environment variables for one run. `HOME` cannot be overridden because it provides profile isolation. Arguments after `<agent>` are passed through unchanged.
 
 #### Docker-backed agent runners
